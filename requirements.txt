@@ -1,7 +1,8 @@
-```text
 streamlit
 pandas
+numpy
 scikit-learn
 imbalanced-learn
 tensorflow
 seaborn
+matplotlib
