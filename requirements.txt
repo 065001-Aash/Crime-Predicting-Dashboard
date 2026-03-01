@@ -1,0 +1,7 @@
+```text
+streamlit
+pandas
+scikit-learn
+imbalanced-learn
+tensorflow
+seaborn
