@@ -9,70 +9,97 @@ import tensorflow as tf
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import Dense
 
-# Page Config for a Professional Look
-st.set_page_config(page_title="Crime Intelligence AI", layout="wide")
-st.title("🛡️ Police Resource Intelligence Dashboard")
-st.markdown("---")
+st.set_page_config(page_title="Crime Intelligence Hub", layout="wide", initial_sidebar_state="expanded")
 
-# 1. LOAD & CLEAN
+# --- CUSTOM CSS FOR BETTER LOOK ---
+st.markdown("""
+    <style>
+    .main { background-color: #f5f7f9; }
+    .stMetric { background-color: #ffffff; padding: 15px; border-radius: 10px; box-shadow: 2px 2px 5px rgba(0,0,0,0.1); }
+    </style>
+    """, unsafe_allow_html=True)
+
+# 1. DATA ENGINE
 @st.cache_data
 def get_data():
     df = pd.read_csv('Crimes_in_india_2001-2013.csv')
-    df['Severity'] = pd.cut(df['TOTAL IPC CRIMES'], bins=[0, 2000, 5000, np.inf], labels=['Low', 'Medium', 'High'])
     return df.dropna()
 
 df = get_data()
 
-# 2. PREPROCESSING
-le_state = LabelEncoder()
-df['STATE_ID'] = le_state.fit_transform(df['STATE/UT'])
-le_sev = LabelEncoder()
-df['SEV_ID'] = le_sev.fit_transform(df['Severity'])
+# 2. SIDEBAR - ADVANCED CONTROLS
+st.sidebar.title("🛡️ Admin Controls")
+st.sidebar.subheader("Threshold Settings")
+# Interactive Threshold: Let the manager decide what 'High Crime' means
+high_threshold = st.sidebar.slider("High Crime Limit (Total IPC)", 2000, 10000, 5000)
 
-# 3. SIDEBAR CONTROLS
-st.sidebar.header("🕹️ AI Control Panel")
-train_rounds = st.sidebar.slider("Training Intensity (Epochs)", 10, 100, 50)
-balance_data = st.sidebar.toggle("Enable SMOTE Balancing", value=True)
+st.sidebar.subheader("ANN Configuration")
+train_epochs = st.sidebar.select_slider("AI Training Depth", options=[10, 50, 100, 150], value=100)
+use_smote = st.sidebar.toggle("Balance Data (SMOTE)", value=True)
 
-# 4. THE PREDICTOR TOOL (Managerial Requirement)
-col1, col2 = st.columns(2)
+# Apply dynamic labels based on user slider
+df['Severity'] = pd.cut(df['TOTAL IPC CRIMES'], bins=[0, 2000, high_threshold, np.inf], labels=['Low', 'Medium', 'High'])
 
-with col1:
-    st.subheader("🔮 Predict Risk Level")
-    input_state = st.selectbox("Select State/UT", sorted(df['STATE/UT'].unique()))
-    input_year = st.number_input("Enter Year", 2014, 2025, 2024)
+# 3. DASHBOARD TABS
+tab1, tab2, tab3 = st.tabs(["🔮 Future AI Forecast", "📊 Comparative Analysis", "🗂️ Data Inspector"])
+
+with tab1:
+    st.header("Predictive Intelligence")
+    col1, col2 = st.columns([1, 2])
     
-    if st.button("Generate AI Forecast"):
-        # Setup ANN
-        X = df[['STATE_ID', 'YEAR']]
-        y = df['SEV_ID']
+    with col1:
+        target_state = st.selectbox("Select Target State", sorted(df['STATE/UT'].unique()))
+        target_year = st.slider("Forecast Horizon", 2014, 2035, 2026)
         
-        if balance_data:
-            X, y = SMOTE().fit_resample(X, y)
+        if st.button("🚀 Run Neural Forecast"):
+            # Prepare ANN
+            le_s = LabelEncoder()
+            df['S_ID'] = le_s.fit_transform(df['STATE/UT'])
+            le_v = LabelEncoder()
+            df['V_ID'] = le_v.fit_transform(df['Severity'])
             
-        scaler = StandardScaler()
-        X_scaled = scaler.fit_transform(X)
-        
-        model = Sequential([
-            Dense(32, activation='relu', input_shape=(2,)),
-            Dense(16, activation='relu'),
-            Dense(3, activation='softmax')
-        ])
-        model.compile(optimizer='adam', loss='sparse_categorical_crossentropy', metrics=['accuracy'])
-        model.fit(X_scaled, y, epochs=train_rounds, verbose=0)
-        
-        # Make Prediction
-        query = scaler.transform([[le_state.transform([input_state])[0], input_year]])
-        res = np.argmax(model.predict(query), axis=1)
-        final_label = le_sev.inverse_transform(res)[0]
-        
-        st.metric(label="Predicted Crime Risk", value=final_label)
-        if final_label == 'High':
-            st.error("⚠️ ACTION REQUIRED: Deploy additional units to this sector.")
-        else:
-            st.success("✅ STABLE: Current patrol levels are sufficient.")
+            X = df[['S_ID', 'YEAR']]
+            y = df['V_ID']
+            
+            if use_smote:
+                X, y = SMOTE(random_state=42).fit_resample(X, y)
+            
+            scaler = StandardScaler()
+            X_scaled = scaler.fit_transform(X)
+            
+            model = Sequential([
+                Dense(64, activation='relu', input_shape=(2,)),
+                Dense(32, activation='relu'),
+                Dense(3, activation='softmax')
+            ])
+            model.compile(optimizer='adam', loss='sparse_categorical_crossentropy', metrics=['accuracy'])
+            model.fit(X_scaled, y, epochs=train_epochs, verbose=0)
+            
+            # Prediction
+            s_code = le_s.transform([target_state])[0]
+            query = scaler.transform([[s_code, target_year]])
+            p_idx = np.argmax(model.predict(query), axis=1)
+            result = le_v.inverse_transform(p_idx)[0]
+            
+            st.metric("Predicted Severity", result)
+            
+    with col2:
+        if 'result' in locals():
+            st.subheader(f"Trend Analysis: {target_state}")
+            st.line_chart(df[df['STATE/UT'] == target_state], x='YEAR', y='TOTAL IPC CRIMES')
+            st.caption("Historical data (2001-2013) used to train the Neural Network.")
 
-with col2:
-    st.subheader("📈 Historical Trends")
-    state_df = df[df['STATE/UT'] == input_state]
-    st.line_chart(state_df, x='YEAR', y='TOTAL IPC CRIMES')
+with tab2:
+    st.header("State Comparison Engine")
+    c1, c2 = st.columns(2)
+    with c1:
+        s1 = st.selectbox("State A", sorted(df['STATE/UT'].unique()), index=0)
+    with c2:
+        s2 = st.selectbox("State B", sorted(df['STATE/UT'].unique()), index=1)
+    
+    comp_df = df[df['STATE/UT'].isin([s1, s2])]
+    st.bar_chart(comp_df, x='YEAR', y='TOTAL IPC CRIMES', color='STATE/UT')
+
+with tab3:
+    st.header("Raw Data Access")
+    st.dataframe(df, use_container_width=True)
