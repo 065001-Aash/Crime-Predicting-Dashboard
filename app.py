@@ -9,97 +9,93 @@ import tensorflow as tf
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import Dense
 
-st.set_page_config(page_title="Crime Intelligence Hub", layout="wide", initial_sidebar_state="expanded")
+# Page Setup
+st.set_page_config(page_title="Crime AI Intelligence", layout="wide")
+st.title("🛡️ Indian Crime Forecasting & ANN Analysis")
+st.markdown("---")
 
-# --- CUSTOM CSS FOR BETTER LOOK ---
-st.markdown("""
-    <style>
-    .main { background-color: #f5f7f9; }
-    .stMetric { background-color: #ffffff; padding: 15px; border-radius: 10px; box-shadow: 2px 2px 5px rgba(0,0,0,0.1); }
-    </style>
-    """, unsafe_allow_html=True)
-
-# 1. DATA ENGINE
+# 1. LOAD DATA
 @st.cache_data
 def get_data():
     df = pd.read_csv('Crimes_in_india_2001-2013.csv')
+    # Clean column names
+    df.columns = df.columns.str.strip()
+    # Create Severity Levels
+    df['Severity'] = pd.cut(df['TOTAL IPC CRIMES'], bins=[0, 2000, 5000, np.inf], labels=['Low', 'Medium', 'High'])
     return df.dropna()
 
-df = get_data()
+try:
+    df = get_data()
 
-# 2. SIDEBAR - ADVANCED CONTROLS
-st.sidebar.title("🛡️ Admin Controls")
-st.sidebar.subheader("Threshold Settings")
-# Interactive Threshold: Let the manager decide what 'High Crime' means
-high_threshold = st.sidebar.slider("High Crime Limit (Total IPC)", 2000, 10000, 5000)
+    # 2. INTERACTIVE SIDEBAR
+    st.sidebar.header("🛠️ Model Configuration")
+    forecast_horizon = st.sidebar.slider("Forecast Year", 2014, 2035, 2026)
+    training_rounds = st.sidebar.select_slider("AI Training Intensity", options=[20, 50, 100], value=50)
 
-st.sidebar.subheader("ANN Configuration")
-train_epochs = st.sidebar.select_slider("AI Training Depth", options=[10, 50, 100, 150], value=100)
-use_smote = st.sidebar.toggle("Balance Data (SMOTE)", value=True)
+    # 3. TABS FOR INTERACTIVITY
+    tab1, tab2 = st.tabs(["🔮 Future Prediction", "📊 Comparison Engine"])
 
-# Apply dynamic labels based on user slider
-df['Severity'] = pd.cut(df['TOTAL IPC CRIMES'], bins=[0, 2000, high_threshold, np.inf], labels=['Low', 'Medium', 'High'])
-
-# 3. DASHBOARD TABS
-tab1, tab2, tab3 = st.tabs(["🔮 Future AI Forecast", "📊 Comparative Analysis", "🗂️ Data Inspector"])
-
-with tab1:
-    st.header("Predictive Intelligence")
-    col1, col2 = st.columns([1, 2])
-    
-    with col1:
-        target_state = st.selectbox("Select Target State", sorted(df['STATE/UT'].unique()))
-        target_year = st.slider("Forecast Horizon", 2014, 2035, 2026)
+    with tab1:
+        st.subheader("Deep Learning Forecast")
+        col1, col2 = st.columns([1, 2])
         
-        if st.button("🚀 Run Neural Forecast"):
-            # Prepare ANN
-            le_s = LabelEncoder()
-            df['S_ID'] = le_s.fit_transform(df['STATE/UT'])
-            le_v = LabelEncoder()
-            df['V_ID'] = le_v.fit_transform(df['Severity'])
-            
-            X = df[['S_ID', 'YEAR']]
-            y = df['V_ID']
-            
-            if use_smote:
-                X, y = SMOTE(random_state=42).fit_resample(X, y)
-            
-            scaler = StandardScaler()
-            X_scaled = scaler.fit_transform(X)
-            
-            model = Sequential([
-                Dense(64, activation='relu', input_shape=(2,)),
-                Dense(32, activation='relu'),
-                Dense(3, activation='softmax')
-            ])
-            model.compile(optimizer='adam', loss='sparse_categorical_crossentropy', metrics=['accuracy'])
-            model.fit(X_scaled, y, epochs=train_epochs, verbose=0)
-            
-            # Prediction
-            s_code = le_s.transform([target_state])[0]
-            query = scaler.transform([[s_code, target_year]])
-            p_idx = np.argmax(model.predict(query), axis=1)
-            result = le_v.inverse_transform(p_idx)[0]
-            
-            st.metric("Predicted Severity", result)
-            
-    with col2:
-        if 'result' in locals():
-            st.subheader(f"Trend Analysis: {target_state}")
-            st.line_chart(df[df['STATE/UT'] == target_state], x='YEAR', y='TOTAL IPC CRIMES')
-            st.caption("Historical data (2001-2013) used to train the Neural Network.")
+        with col1:
+            state_select = st.selectbox("Select State/UT", sorted(df['STATE/UT'].unique()))
+            if st.button("🚀 Generate AI Prediction"):
+                # Data Prep
+                le_state = LabelEncoder()
+                df['S_ID'] = le_state.fit_transform(df['STATE/UT'])
+                le_sev = LabelEncoder()
+                df['V_ID'] = le_sev.fit_transform(df['Severity'])
+                
+                X = df[['S_ID', 'YEAR']]
+                y = df['V_ID']
+                
+                # SAFE SMOTE: Only runs if enough data exists to avoid the ValueError
+                if len(np.unique(y)) > 1:
+                    sm = SMOTE(random_state=42, k_neighbors=1) # Reduced neighbors to prevent crash
+                    X_res, y_res = sm.fit_resample(X, y)
+                else:
+                    X_res, y_res = X, y
 
-with tab2:
-    st.header("State Comparison Engine")
-    c1, c2 = st.columns(2)
-    with c1:
-        s1 = st.selectbox("State A", sorted(df['STATE/UT'].unique()), index=0)
-    with c2:
-        s2 = st.selectbox("State B", sorted(df['STATE/UT'].unique()), index=1)
-    
-    comp_df = df[df['STATE/UT'].isin([s1, s2])]
-    st.bar_chart(comp_df, x='YEAR', y='TOTAL IPC CRIMES', color='STATE/UT')
+                scaler = StandardScaler()
+                X_scaled = scaler.fit_transform(X_res)
+                
+                # ANN Model
+                model = Sequential([
+                    Dense(32, activation='relu', input_shape=(2,)),
+                    Dense(16, activation='relu'),
+                    Dense(3, activation='softmax')
+                ])
+                model.compile(optimizer='adam', loss='sparse_categorical_crossentropy', metrics=['accuracy'])
+                
+                with st.spinner('Neural Network Training...'):
+                    model.fit(X_scaled, y_res, epochs=training_rounds, verbose=0)
+                
+                # Predict
+                s_idx = le_state.transform([state_select])[0]
+                query = scaler.transform([[s_idx, forecast_horizon]])
+                p_idx = np.argmax(model.predict(query), axis=1)
+                final_res = le_sev.inverse_transform(p_idx)[0]
+                
+                st.metric(f"Risk for {forecast_horizon}", final_res)
+                if final_res == 'High':
+                    st.error("Action Recommended: Strategic Patrol Increase.")
+                else:
+                    st.success("Stable Pattern Detected.")
 
-with tab3:
-    st.header("Raw Data Access")
-    st.dataframe(df, use_container_width=True)
+        with col2:
+            st.subheader("Historical Context")
+            state_data = df[df['STATE/UT'] == state_select]
+            st.line_chart(state_data, x='YEAR', y='TOTAL IPC CRIMES')
+
+    with tab2:
+        st.subheader("State-by-State Comparison")
+        comp_states = st.multiselect("Select States to Compare", sorted(df['STATE/UT'].unique()), default=sorted(df['STATE/UT'].unique())[:2])
+        if comp_states:
+            comp_df = df[df['STATE/UT'].isin(comp_states)]
+            st.bar_chart(comp_df, x='YEAR', y='TOTAL IPC CRIMES', color='STATE/UT')
+
+except Exception as e:
+    st.error(f"Configuration Error: {e}")
+    st.info("Check if 'Crimes_in_india_2001-2013.csv' is correctly uploaded to GitHub.")
