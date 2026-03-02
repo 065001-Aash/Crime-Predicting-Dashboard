@@ -3,7 +3,6 @@ pandas
 numpy
 plotly
 scikit-learn
-imbalanced-learn
 tensorflow
-seaborn
-matplotlib
+statsmodels
+scipy
