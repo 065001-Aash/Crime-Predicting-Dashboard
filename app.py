@@ -3,8 +3,6 @@ import pandas as pd
 import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
-import seaborn as sns
-import matplotlib.pyplot as plt
 from sklearn.preprocessing import LabelEncoder, StandardScaler
 import tensorflow as tf
 from tensorflow.keras.models import Sequential
@@ -21,104 +19,110 @@ def load_ncrb_data():
     return df
 
 df = load_ncrb_data()
-crime_columns = ['MURDER', 'ATTEMPT TO MURDER', 'CULPABLE HOMICIDE NOT AMOUNTING TO MURDER', 
-                 'RAPE', 'CUSTODIAL RAPE', 'OTHER RAPE', 'KIDNAPPING & ABDUCTION', 
-                 'KIDNAPPING AND ABDUCTION OF WOMEN AND GIRLS', 'KIDNAPPING AND ABDUCTION OF OTHERS', 
-                 'DACOITY', 'PREPARATION AND ASSEMBLY FOR DACOITY', 'ROBBERY', 'BURGLARY', 'THEFT']
 
-# --- SIDEBAR FILTERS ---
-st.sidebar.title("🔍 Dashboard Controls")
+# --- SIDEBAR FILTERS (Requirement II) ---
+st.sidebar.title("🔍 Advanced Filters")
+# Interactive Slicer for Crime Categories
+crime_options = ['TOTAL IPC CRIMES', 'MURDER', 'ROBBERY', 'BURGLARY', 'THEFT', 'RAPE', 'KIDNAPPING & ABDUCTION']
+selected_crime = st.sidebar.selectbox("🎯 Select Crime Category to Analyze", crime_options)
+
 selected_year = st.sidebar.slider("Historical Data Range", 2001, 2013, (2001, 2013))
 selected_states = st.sidebar.multiselect("Filter by State/UT", sorted(df['STATE/UT'].unique()))
 
+# Filter logic
 filtered_df = df[(df['YEAR'] >= selected_year[0]) & (df['YEAR'] <= selected_year[1])]
 if selected_states:
     filtered_df = filtered_df[filtered_df['STATE/UT'].isin(selected_states)]
 
 # --- I. KPI CARDS ---
-st.title("🛡️ Advanced Crime Analytics & AI Forecast")
-k1, k2, k3, k4 = st.columns(4)
-k1.metric("Total IPC Cases", f"{filtered_df['TOTAL IPC CRIMES'].sum():,}")
-k2.metric("Avg Crime Rate", f"{int(filtered_df['TOTAL IPC CRIMES'].mean()):,}")
-k3.metric("Top Crime State", filtered_df.groupby('STATE/UT')['TOTAL IPC CRIMES'].sum().idxmax())
-k4.metric("States Analyzed", len(filtered_df['STATE/UT'].unique()))
+st.title("🛡️ Indian Crime Intelligence & AI Forecast")
+st.markdown(f"### Analyzing: {selected_crime}")
+
+kpi1, kpi2, kpi3, kpi4 = st.columns(4)
+total_val = filtered_df[selected_crime].sum()
+avg_val = filtered_df[selected_crime].mean()
+top_state = filtered_df.groupby('STATE/UT')[selected_crime].sum().idxmax()
+
+kpi1.metric(f"Total {selected_crime}", f"{total_val:,}")
+kpi2.metric("Avg Annual Volume", f"{int(avg_val):,}")
+kpi3.metric("Highest Volume State", top_state)
+kpi4.metric("Active Filters", f"{len(filtered_df['STATE/UT'].unique())} States")
 
 st.markdown("---")
 
-# --- II. NEW CHARTS: CORRELATION & DISTRIBUTION ---
-tab1, tab2, tab3 = st.tabs(["📊 Crime Patterns", "🔮 AI Forecasting", "⚖️ State Comparison"])
+# --- II. GEOSPATIAL & CONTRIBUTION DONUT ---
+row1_col1, row1_col2 = st.columns([2, 1])
 
-with tab1:
-    col_a, col_b = st.columns(2)
+with row1_col1:
+    st.subheader(f"📍 Regional Intensity: {selected_crime}")
+    state_totals = filtered_df.groupby('STATE/UT')[selected_crime].sum().reset_index()
+    fig_bar = px.bar(state_totals, x='STATE/UT', y=selected_crime, 
+                     color=selected_crime, color_continuous_scale='Reds',
+                     title=f"Geographic Distribution of {selected_crime}")
+    st.plotly_chart(fig_bar, use_container_width=True)
+
+with row1_col2:
+    st.subheader("🍩 State Contribution (%)")
+    # Show top 5 states and group others for a clean donut
+    top_5 = filtered_df.groupby('STATE/UT')[selected_crime].sum().sort_values(ascending=False).head(5).reset_index()
+    fig_donut = px.pie(top_5, values=selected_crime, names='STATE/UT', hole=0.6, 
+                       color_discrete_sequence=px.colors.sequential.RdBu)
+    fig_donut.update_layout(showlegend=False) # Keep it clean
+    st.plotly_chart(fig_donut, use_container_width=True)
+
+# --- III. TIME SERIES & AI FORECAST ---
+st.markdown("---")
+row2_col1, row2_col2 = st.columns(2)
+
+with row2_col1:
+    st.subheader("📈 Historical Trend Line")
+    trend_data = filtered_df.groupby('YEAR')[selected_crime].sum().reset_index()
+    fig_trend = px.line(trend_data, x='YEAR', y=selected_crime, markers=True, 
+                        title=f"Yearly Trend of {selected_crime} (2001-2013)")
+    st.plotly_chart(fig_trend, use_container_width=True)
+
+with row2_col2:
+    st.subheader(f"🔮 AI Forecast: {selected_crime} (to 2035)")
+    target_year = st.slider("Select Forecast Year", 2026, 2035, 2030)
     
-    with col_a:
-        st.subheader("🔗 Crime Correlation Heatmap")
-        st.write("Shows how different crimes move together (e.g., Burglary vs Theft).")
-        corr = filtered_df[crime_columns].corr()
-        fig_corr = px.imshow(corr, text_auto=True, color_continuous_scale='RdBu_r', aspect="auto")
-        st.plotly_chart(fig_corr, use_container_width=True)
-
-    with col_b:
-        st.subheader("📦 Crime Volume Distribution (Box Plot)")
-        st.write("Identifies statistical outliers and median crime counts across states.")
-        # Selecting a few key crimes for the boxplot to keep it clean
-        box_data = filtered_df[['MURDER', 'ROBBERY', 'BURGLARY', 'THEFT']]
-        fig_box = px.box(box_data, points="all", title="Spread of Major Crimes")
-        st.plotly_chart(fig_box, use_container_width=True)
-
-    st.markdown("---")
-    col_c, col_d = st.columns(2)
-    
-    with col_c:
-        st.subheader("📈 Yearly Growth Rate (%)")
-        growth = df.groupby('YEAR')['TOTAL IPC CRIMES'].sum().pct_change() * 100
-        fig_growth = px.bar(growth, x=growth.index, y='TOTAL IPC CRIMES', 
-                            title="Year-over-Year % Change", labels={'TOTAL IPC CRIMES':'% Change'})
-        st.plotly_chart(fig_growth, use_container_width=True)
-
-    with col_d:
-        st.subheader("🍩 IPC vs Other Crimes Ratio")
-        total_vals = filtered_df[crime_columns].sum().sort_values(ascending=False).head(5)
-        fig_pie = px.pie(values=total_vals.values, names=total_vals.index, hole=0.4, title="Top 5 Crime Categories")
-        st.plotly_chart(fig_pie, use_container_width=True)
-
-with tab2:
-    st.subheader("🔮 Neural Network Future Projection (2027 - 2035)")
-    target_year = st.slider("Forecast Target Year", 2027, 2035, 2030)
-    
-    if st.button("🚀 Execute ANN Forecast"):
+    if st.button("🚀 Run Neural Forecast"):
+        # Training Logic
         X = df[['YEAR']].values
-        y = df['TOTAL IPC CRIMES'].values
+        y = df[selected_crime].values
         
         scaler_X, scaler_y = StandardScaler(), StandardScaler()
         X_s, y_s = scaler_X.fit_transform(X), scaler_y.fit_transform(y.reshape(-1, 1))
         
         model = Sequential([
-            Dense(128, activation='relu', input_shape=(1,)),
-            Dense(64, activation='relu'),
+            Dense(64, activation='relu', input_shape=(1,)),
             Dense(32, activation='relu'),
             Dense(1)
         ])
         model.compile(optimizer='adam', loss='mse')
         
-        with st.spinner('AI is simulating historical crime cycles...'):
-            model.fit(X_s, y_s, epochs=150, verbose=0)
-            
-        pred = scaler_y.inverse_transform(model.predict(scaler_X.transform([[target_year]])))[0][0]
-        st.metric(f"AI Predicted Total IPC for {target_year}", f"{int(pred):,}")
+        with st.spinner('Neural Network training...'):
+            model.fit(X_s, y_s, epochs=100, verbose=0)
         
-        # Trend Visualization
-        future_yrs = np.array(range(2001, 2036)).reshape(-1, 1)
-        future_preds = scaler_y.inverse_transform(model.predict(scaler_X.transform(future_yrs)))
-        forecast_chart = pd.DataFrame({'Year': future_yrs.flatten(), 'Cases': future_preds.flatten()})
-        fig_f = px.line(forecast_chart, x='Year', y='Cases', title="AI Predicted Trendline to 2035")
-        fig_f.add_vrect(x0=2013, x1=2035, fillcolor="red", opacity=0.1, annotation_text="AI Forecast Zone")
-        st.plotly_chart(fig_f, use_container_width=True)
+        pred = scaler_y.inverse_transform(model.predict(scaler_X.transform([[target_year]])))[0][0]
+        st.metric(f"Predicted {selected_crime} (Year {target_year})", f"{int(pred):,}")
+        
+        # Comparison logic
+        baseline = df[df['YEAR'] == 2013][selected_crime].sum()
+        diff = ((pred - baseline) / baseline) * 100
+        st.write(f"Trend: **{diff:+.1f}%** relative to 2013 baseline.")
 
-with tab3:
-    st.subheader("⚖️ State Comparison Engine")
-    states = st.multiselect("Pick States", sorted(df['STATE/UT'].unique()), default=sorted(df['STATE/UT'].unique())[:3])
-    if states:
-        fig_comp = px.area(df[df['STATE/UT'].isin(states)], x="YEAR", y="TOTAL IPC CRIMES", color="STATE/UT",
-                           title="Cumulative Crime Comparison")
+# --- IV. DATA INSPECTOR & COMPARISON ---
+st.markdown("---")
+tab1, tab2 = st.tabs(["⚖️ State Comparison Engine", "🗂️ Detailed Data Inspector"])
+
+with tab1:
+    comp_states = st.multiselect("Select States for Side-by-Side Analysis", 
+                                 sorted(df['STATE/UT'].unique()), default=sorted(df['STATE/UT'].unique())[:2])
+    if len(comp_states) >= 2:
+        comp_df = df[df['STATE/UT'].isin(comp_states)]
+        fig_comp = px.bar(comp_df, x='YEAR', y=selected_crime, color='STATE/UT', barmode='group')
         st.plotly_chart(fig_comp, use_container_width=True)
+
+with tab2:
+    st.subheader("Reference Data Table")
+    st.dataframe(filtered_df[['STATE/UT', 'YEAR'] + crime_options], use_container_width=True)
